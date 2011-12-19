@@ -202,7 +202,7 @@ HTML;
 /**
  * Handler for responses from the PayPal site
  */
-class PaystationHostedPaymentBurnbright_Handler extends Controller {
+class ImprovedPaystationHostedPayment_Handler extends Controller {
 	
 	protected static $usequicklookup = true;
 	protected static $quicklookupurl = 'https://www.paystation.co.nz/lookup/quick/';

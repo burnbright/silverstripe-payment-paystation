@@ -1,37 +1,28 @@
-###############################################
-Payment Paystation Hosted
-Pre 0.1 proof of concept
-###############################################
+# Paystation Hosted Payment
 
-Provides the connection for the
-Paystation Hosted payment gateway.
+Provides the connection for the Paystation Hosted payment gateway.
+    
+## Maintainer Contact   
 
-Developers
------------------------------------------------
-Nicolaas Francken [at] sunnysideup.co.nz
+ * Jeremy Shipman (Jedateach, <jeremy@burnbright.net>)
+ * Nicolaas Francken (Nicolaas Francken [at] sunnysideup.co.nz)
 
-Requirements
------------------------------------------------
-Ecommerce 1.0+ / SSU Branch
-Payment
-SilverStripe 2.4+
+## Requirements
 
-Project Home
------------------------------------------------
-See http://code.google.com/p/silverstripe-ecommerce
+ * SilverStripe 2.4+
+ * Payments
 
-Demo
------------------------------------------------
-See http://www.silverstripe-ecommerce.com
+## Installation Instructions
 
-Installation Instructions
------------------------------------------------
-1. Find out how to add modules to SS and add module as per usual.
-2. copy configurations from this module's _config.php file
-into mysite/_config.php file and edit settings as required.
-NB. the idea is not to edit the module at all, but instead customise
-it from your mysite folder, so that you can upgrade the module without redoing the settings.
+Assuming you have set up a paystation account already, and recieved the config details:
 
-If you just want one or two things from this module
-then of course you are free to copy them to your
-mysite folder and delete the rest of this module.
+ 1. Copy into your SilverStripe site directory
+ 2. Run [yourwebsite]/db/build?flush=all in your browser
+ 3. Set your _config.php configuration as per the details provided by Paystation:
+ 
+ 	ImprovedPaystationHostedPayment::set_paystation_id('[PAYSTATION_ID]');
+	ImprovedPaystationHostedPayment::set_gateway_id('[GATEWAY_ID]');
+
+ 4. Optionally put the payment into test mode:	
+
+	ImprovedPaystationHostedPayment::set_test_mode();

@@ -1,11 +1,5 @@
 <?php
-/**
- *
- *
- * 
-**/
 
-
-//copy the lines between the START AND END line to your /mysite/_config.php file and choose the right settings
-//===================---------------- START payment_paystation_hosted MODULE ----------------===================
-//===================---------------- END payment_paystation_hosted MODULE ----------------===================
+Director::addRules(50, array(
+	ImprovedPaystationHostedPayment_Handler::$URLSegment . '/$Action/$ID' => 'ImprovedPaystationHostedPayment_Handler'
+));
