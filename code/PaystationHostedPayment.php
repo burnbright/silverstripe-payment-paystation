@@ -32,13 +32,12 @@
  * 
 */
 
-class ImprovedPaystationHostedPayment extends Payment {
+class PaystationHostedPayment extends Payment {
 	
 	static $db = array(
 		'MerchantSession' => 'Varchar',
 		'TransactionID' => 'Varchar'
 	);
-	
 	
 	protected static $privacy_link = 'http://paystation.co.nz/privacy-policy';
 	protected static $logo = 'payment/images/payments/paystation.jpg';
@@ -110,7 +109,7 @@ class ImprovedPaystationHostedPayment extends Payment {
 			'pstn_pi' => self::$paystation_id, //paystation ID
 			'pstn_gi' => self::$gateway_id, //gateway ID
 			'pstn_ms' => $this->MerchantSession, 
-			'pstn_am' => $this->Amount * 100 //ammount in cents
+			'pstn_am' => $this->Amount->Amount * 100 //ammount in cents
 		);
 		
 		//add optional parameters
@@ -202,7 +201,7 @@ HTML;
 /**
  * Handler for responses from the PayPal site
  */
-class ImprovedPaystationHostedPayment_Handler extends Controller {
+class PaystationHostedPayment_Controller extends Controller {
 	
 	protected static $usequicklookup = true;
 	protected static $quicklookupurl = 'https://www.paystation.co.nz/lookup/quick/';
