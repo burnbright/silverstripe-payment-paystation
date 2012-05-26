@@ -186,10 +186,13 @@ class PaystationHostedPayment_Controller extends Controller {
 			if(isset($_REQUEST['ms'])) {
 				$payid = (int)substr($_REQUEST['ms'],strpos($_REQUEST['ms'],'-')+1);//extract PaystationPayment ID off the end
 				if($payment = DataObject::get_by_id('PaystationHostedPayment', $payid)) {
+					if($payment->Status == "Success"){
+						$payment->redirectToReturnURL();
+					}
 					$payment->Status = $_REQUEST['ec'] == '0' ? 'Success' : 'Failure';
 					if($_REQUEST['ti']) $payment->TransactionID = $_REQUEST['ti'];
 					if($_REQUEST['em']) $payment->Message = $_REQUEST['em'];
-					$this->Status = 'Success';
+					
 					//Quick Lookup
 					if(self::$usequicklookup){
 						$paystation = new RestfulService(self::$quicklookupurl,0); //REST connection that will expire immediately
@@ -203,8 +206,13 @@ class PaystationHostedPayment_Controller extends Controller {
 						$paystation->setQueryString($data);
 						$response = $paystation->request(null,'GET');
 						$sxml = $response->simpleXML();
-						echo "<br/>";
-						if($sxml && $s = $sxml->LookupResponse){
+						if(!$sxml){
+							//falied connection?
+							$payment->Status = "Failure";
+							$payment->Message .= "Paystation quick lookup failed.";
+						}elseif($sxml->LookupStatus && $sxml->LookupStatus->LookupCode == "00"){
+							$payment->Status = "Success";
+						}elseif($s = $sxml->LookupResponse){
 							//check transaction ID matches
 							if($payment->TransactionID != (string)$s->PaystationTransactionID){
 								$payment->Status = "Failure";
@@ -224,10 +232,6 @@ class PaystationHostedPayment_Controller extends Controller {
 						}elseif($sxml && $s = $sxml->LookupStatus){
 							$payment->Status = "Failure";
 							$payment->Message .= $s->LookupMessage;
-						}else{
-							//falied connection?
-							$payment->Status = "Failure";
-							$payment->Message .= "Paystation quick lookup failed.";
 						}
 					}
 					$payment->write();
