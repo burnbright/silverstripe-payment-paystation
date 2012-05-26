@@ -20,9 +20,9 @@ Assuming you have set up a paystation account already, and recieved the config d
  2. Run [yourwebsite]/db/build?flush=all in your browser
  3. Set your _config.php configuration as per the details provided by Paystation:
  
- 	ImprovedPaystationHostedPayment::set_paystation_id('[PAYSTATION_ID]');
-	ImprovedPaystationHostedPayment::set_gateway_id('[GATEWAY_ID]');
+ 	PaystationHostedPayment::set_paystation_id('[PAYSTATION_ID]');
+	PaystationHostedPayment::set_gateway_id('[GATEWAY_ID]');
 
  4. Optionally put the payment into test mode:	
 
-	ImprovedPaystationHostedPayment::set_test_mode();
+	PaystationHostedPayment::set_test_mode();

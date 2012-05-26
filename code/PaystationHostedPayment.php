@@ -1,5 +1,4 @@
 <?php
-
 /**
  * PaystationHostedPayment - www.paystation.co.nz
  * Contains improvements
@@ -31,7 +30,6 @@
  * pstn_af = Ammount Format - Tells Paystation what format the Amount is in. If omitted, it will be assumed the amount is in cents
  * 
 */
-
 class PaystationHostedPayment extends Payment {
 	
 	static $db = array(
@@ -48,8 +46,6 @@ class PaystationHostedPayment extends Payment {
 	protected static $merchant_ref;
 	
 	protected static $returnurl = null;
-	
-	//setters
 	
 	static function set_test_mode() {
 		self::$test_mode = true;
@@ -93,16 +89,13 @@ class PaystationHostedPayment extends Payment {
 	}
 	
 	function processPayment($data, $form) {
-		
 		//check for correct set up info
 		if(!self::$paystation_id)
 			user_error('No paystation id specified. Use PaystationHostedPayment::set_paystation_id() in your _config.php file.', E_USER_ERROR);
 		if(!self::$gateway_id)
 			user_error('No gateway id specified. Use PaystationHostedPayment::set_gateway_id() in your _config.php file.', E_USER_ERROR);
-		
 		//merchant Session: built from (php session id)-(payment id) to ensure uniqueness
 		$this->MerchantSession = session_id()."-".$this->ID;
-		
 		//set up required parameters
 		$data = array(
 			'paystation' => '_empty',
@@ -111,62 +104,37 @@ class PaystationHostedPayment extends Payment {
 			'pstn_ms' => $this->MerchantSession, 
 			'pstn_am' => $this->Amount->Amount * 100 //ammount in cents
 		);
-		
 		//add optional parameters
 		//$data['pstn_cu'] = //currency
 		if(self::$test_mode) $data['pstn_tm'] = 't'; //test mode
 		if(self::$merchant_ref) $data['pstn_mr'] = self::$merchant_ref; //merchant refernece
 		//$data['pstn_ct'] = //card type
 		//$data['pstn_af'] = //ammount format
-		
 		//Make POST request to Paystation via RESTful service
 		$paystation = new RestfulService(self::$url,0); //REST connection that will expire immediately
 		$paystation->httpHeader('Accept: application/xml');
 		$paystation->httpHeader('Content-Type: application/x-www-form-urlencoded');
-		
 		$data = http_build_query($data);
 		$response = $paystation->request('','POST',$data);		
 		$sxml = $response->simpleXML();
-	
-		//set up a page for redirection
-		$page = new Page();
-		$page->Logo = '<img src="'.self::$logo.'" alt="Payments powered by Paystation"/>';
-		$controller = new Page_Controller($page);
 		
 		if($paymenturl = $sxml->DigitalOrder){
-			//TODO: store order details
-			
-			$page->Title = 'Redirection to Paystation...';
-			$page->Loading = true;
-			$page->Message = "redirecting to paystation payment";
-			$page->ExtraMeta = '<meta http-equiv="Refresh" content="1;url='.$paymenturl.'"/>';
-			
-			$this->Status = 'Incomplete';
+			$this->Status = 'Pending';
 			$this->write();
-			
-			Requirements::javascript(THIRDPARTY_DIR . '/jquery/jquery.js'); //javascript redirection
-			$output = $controller->renderWith('PaymentProcessingPage');
-			
 			Director::redirect($paymenturl); //redirect to payment gateway
-			return new Payment_Processing($output);
+			return new Payment_Processing();
 		}
-		
-		
 		if(isset($sxml->PaystationErrorCode) && $sxml->PaystationErrorCode > 0){
-			
 			//provide useful feedback on failure
 			$error = $sxml->PaystationErrorCode." ".$sxml->PaystationErrorMessage;
-
 			$this->Message = $error;
 			$this->Status = 'Failure';
 			$this->write();
 			//user_error('Paystation error: $error');
 			return new Payment_Failure($sxml->PaystationErrorMessage);
 		}
-		
 		//else recieved bad xml or transaction falied for an unknown reason
 		//what should happen here?
-		
 		return new Payment_Failure("Unknown error");
 	}
 	
@@ -214,53 +182,45 @@ class PaystationHostedPayment_Controller extends Controller {
 	
 	function complete() {
 		//TODO: check that request came from paystation.co.nz
-
 		if(isset($_REQUEST['ec'])) {
 			if(isset($_REQUEST['ms'])) {
 				$payid = (int)substr($_REQUEST['ms'],strpos($_REQUEST['ms'],'-')+1);//extract PaystationPayment ID off the end
-				if($payment = DataObject::get_by_id('PaystationHostedPaymentBurnbright', $payid)) {
+				if($payment = DataObject::get_by_id('PaystationHostedPayment', $payid)) {
 					$payment->Status = $_REQUEST['ec'] == '0' ? 'Success' : 'Failure';
 					if($_REQUEST['ti']) $payment->TransactionID = $_REQUEST['ti'];
 					if($_REQUEST['em']) $payment->Message = $_REQUEST['em'];
 					$this->Status = 'Success';
-					
 					//Quick Lookup
 					if(self::$usequicklookup){
 						$paystation = new RestfulService(self::$quicklookupurl,0); //REST connection that will expire immediately
 						$paystation->httpHeader('Accept: application/xml');
 						$paystation->httpHeader('Content-Type: application/x-www-form-urlencoded');
 						$data = array(
-							'pi' => PaystationHostedPaymentBurnbright::get_paystation_id(),
+							'pi' => PaystationHostedPayment::get_paystation_id(),
 							//'ti' => $payment->TransactionID
 							'ms' => $_REQUEST['ms']
 						);
 						$paystation->setQueryString($data);
 						$response = $paystation->request(null,'GET');
-						
 						$sxml = $response->simpleXML();
 						echo "<br/>";
-						if($sxml && $s = $sxml->LookupResponse){					
-							
+						if($sxml && $s = $sxml->LookupResponse){
 							//check transaction ID matches
 							if($payment->TransactionID != (string)$s->PaystationTransactionID){
 								$payment->Status = "Failure";
 								$payment->Message .= "The transaction ID didn't match.";
 							}
-							
 							//check amount matches
 							if($payment->Amount*100 != (int)$s->PurchaseAmount){
 								$payment->Status = "Failure";
 								$payment->Message .= "The purchase amount was inconsistent.";
 							}
-							
 							//check session ID matches
 							if(session_id() != substr($_REQUEST['ms'],0,strpos($_REQUEST['ms'],'-'))){
 								$payment->Status = "Failure";
 								$payment->Message .= "Session id didn't match.";
 							}
-							
 							//TODO: extra - check IP address against $payment->IP??
-							
 						}elseif($sxml && $s = $sxml->LookupStatus){
 							$payment->Status = "Failure";
 							$payment->Message .= $s->LookupMessage;
@@ -269,7 +229,6 @@ class PaystationHostedPayment_Controller extends Controller {
 							$payment->Status = "Failure";
 							$payment->Message .= "Paystation quick lookup failed.";
 						}
-	
 					}
 					$payment->write();
 					$payment->redirectToReturnURL();
@@ -280,7 +239,6 @@ class PaystationHostedPayment_Controller extends Controller {
 			else user_error('There is no any Paystation hosted payment ID specified', E_USER_ERROR);
 		}
 		else user_error('There is no any Paystation hosted payment error code specified', E_USER_ERROR);
-		
 		//TODO: sawp errors for payment failures??
 	}
 	
@@ -301,7 +259,4 @@ class PaystationHostedPayment_Controller extends Controller {
 	 * Cardtype - The card type used
 	 */
 	
-	
 }
-
-?>
