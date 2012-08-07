@@ -26,3 +26,7 @@ Assuming you have set up a paystation account already, and recieved the config d
  4. Optionally put the payment into test mode:	
 
 	PaystationHostedPayment::set_test_mode();
+
+	
+Note that the paystation quicklookup service is ip-limited. Supply your server ip to your
+account manager to set this up.

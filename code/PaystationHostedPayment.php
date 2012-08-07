@@ -163,6 +163,7 @@ HTML;
 			return;
 		}
 		//TODO: show some default thing if there's no return url?...or throw error immediately in the processPayment method?		
+		Director::redirect('home');
 	}
 }
 
