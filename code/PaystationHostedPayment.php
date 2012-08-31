@@ -5,7 +5,7 @@
  * 
  * Test cards:
  * Type - number - expiry - security code
- * VISA - 5123456789012346 - 0513 - 100
+ * VISA - 4987654321098769 - 0513 - 100
  * MASTERCARD - 5123456789012346 - 0513 - 100
  * 
  * How to get different responses (by changing transaction cents value):
@@ -162,8 +162,11 @@ HTML;
 			Director::redirect(self::$returnurl.'/'.$this->ID);
 			return;
 		}
-		//TODO: show some default thing if there's no return url?...or throw error immediately in the processPayment method?		
-		Director::redirect('home');
+		if($url = $this->ReturnURL){
+			Director::redirect($url);
+			return;
+		}	
+		Director::redirect(Director::baseURL());
 	}
 }
 
