@@ -107,7 +107,15 @@ class PaystationHostedPayment extends Payment {
 		//add optional parameters
 		//$data['pstn_cu'] = //currency
 		if(self::$test_mode) $data['pstn_tm'] = 't'; //test mode
-		if(self::$merchant_ref) $data['pstn_mr'] = self::$merchant_ref; //merchant refernece
+		
+		if(isset($data['Reference'])){
+			$data['pstn_mr'] = $data['Reference'];
+		}elseif($this->Reference){
+			$data['pstn_mr'] = $this->Reference;
+		}elseif(self::$merchant_ref){
+			$data['pstn_mr'] = self::$merchant_ref; //merchant refernece
+		}
+		
 		//$data['pstn_ct'] = //card type
 		//$data['pstn_af'] = //ammount format
 		//Make POST request to Paystation via RESTful service
