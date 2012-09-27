@@ -40,6 +40,8 @@ class PaystationHostedPayment extends Payment {
 	protected static $privacy_link = 'http://paystation.co.nz/privacy-policy';
 	protected static $logo = 'payment/images/payments/paystation.jpg';
 	protected static $url = 'https://www.paystation.co.nz/direct/paystation.dll';
+	protected static $quicklookupurl = 'https://www.paystation.co.nz/lookup/quick/';
+	
 	protected static $test_mode = false;
 	protected static $paystation_id;
 	protected static $gateway_id;
@@ -67,8 +69,38 @@ class PaystationHostedPayment extends Payment {
 		self::$merchant_ref = $merchant_ref;
 	}
 	
-	static function get_paystation_id(){
-		return self::$paystation_id;
+	/**
+	 * Get message for error code
+	 */
+	function errorForCode($errorcode = 1){
+		$codes = array(
+			0  => "Transaction succesful",
+			1  => "Unknown error",
+			2  => "Bank declined transaction",
+			3  => "No reply from bank",
+			4  => "Expired card",
+			5  => "Insufficient funds",
+			6  => "Error cummunicating with bank",
+			7  => "Payment server system error",
+			8  => "Transaction type not supported",
+			9  => "Transaction failed",
+			10 => "Purchase amount less or greater than merchant values",
+			11 => "Paystation couldnt create order based on inputs",
+			12 => "Paystation couldnt find merchant based on merchant ID",
+			13 => "Transaction already in progress"
+		);
+	
+		if(isset($codes[$errorcode])){
+			return $codes[$errorcode];
+		}
+		return $codes[1]; //unknown
+	}
+	
+	function statusForCode($code = -1){
+		if($code == 0){
+			return "Success";
+		}
+		return "Failure";
 	}
 	
 	function getPaymentFormFields() {
@@ -106,8 +138,9 @@ class PaystationHostedPayment extends Payment {
 		);
 		//add optional parameters
 		//$data['pstn_cu'] = //currency
-		if(self::$test_mode) $data['pstn_tm'] = 't'; //test mode
-		
+		if(self::$test_mode){
+			$data['pstn_tm'] = 't'; //test mode
+		}
 		if(isset($data['Reference'])){
 			$data['pstn_mr'] = $data['Reference'];
 		}elseif($this->Reference){
@@ -115,7 +148,6 @@ class PaystationHostedPayment extends Payment {
 		}elseif(self::$merchant_ref){
 			$data['pstn_mr'] = self::$merchant_ref; //merchant refernece
 		}
-		
 		//$data['pstn_ct'] = //card type
 		//$data['pstn_af'] = //ammount format
 		//Make POST request to Paystation via RESTful service
@@ -138,31 +170,11 @@ class PaystationHostedPayment extends Payment {
 			$this->Message = $error;
 			$this->Status = 'Failure';
 			$this->write();
-			//user_error('Paystation error: $error');
 			return new Payment_Failure($sxml->PaystationErrorMessage);
 		}
 		//else recieved bad xml or transaction falied for an unknown reason
 		//what should happen here?
 		return new Payment_Failure("Unknown error");
-	}
-	
-	function ProcessError($errorcode){
-		//if errorcode = 4,5,7?
-		//then user has failed in some way
-		//if error code = 10,11,12,13,22,23,25,26,101,102,104
-		// then this payment code has failed in some way
-		//else system failed somehow
-	}
-
-	function RedirectJavascript($url) {
-		$url = Convert::raw2xml($url);
-		return<<<HTML
-			<script type="text/javascript">
-				jQuery(document).ready(function() {
-					location = "$url";
-				});
-			</script>
-HTML;
 	}
 	
 	function redirectToReturnURL(){
@@ -176,6 +188,55 @@ HTML;
 		}	
 		Director::redirect(Director::baseURL());
 	}
+	
+	function updateFromCode($code){
+		$this->Message = $this->errorForCode($code);
+		$this->Status = $this->statusForCode($code);
+	}
+	
+	/**
+	 * Look up payment transaction on the paystation server, and update payment status/message.
+	 * @see http://www.paystation.co.nz/cms_show_download.php?id=38
+	 * @return boolean - quick lookup was successful or failure
+	 */
+	function doQuickLookup(){
+		$paystation = new RestfulService(self::$quicklookupurl,0); //REST connection that will expire immediately
+		$paystation->httpHeader('Accept: application/xml');
+		$paystation->httpHeader('Content-Type: application/x-www-form-urlencoded');
+		$data = array(
+			'pi' => self::$paystation_id,
+			'ti' => $this->TransactionID
+		);
+		$paystation->setQueryString($data);
+		$response = $paystation->request(null,'GET');
+		$sxml = $response->simpleXML();
+		//TODO: don't allow a quick lookup  to overwrite successful/failed payments if lookup doesn't work.
+			//eg a connection failure for lookup shouldn't imply failed payment.
+		if(!$sxml){
+			//falied connection?
+			//$this->Status = "Failure";
+			//$this->Message = "Paystation quick lookup failed.";
+			return false;
+		}elseif($sxml->LookupStatus && $sxml->LookupResponse && $sxml->LookupStatus->LookupCode == "00"){ //lookup was successful
+			$r = $sxml->LookupResponse;			
+			$this->updateFromCode((int)$r->PaystationErrorCode);
+			//check transaction ID matches
+			if($this->TransactionID != (string)$r->PaystationTransactionID){
+				$this->Status = "Failure";
+				$this->Message = "The transaction ID didn't match";
+			}
+			//check amount matches
+			if($this->AmountAmount * 100 != (int)$r->PurchaseAmount){
+				$this->Status = "Incomplete";
+				$this->Message = "The purchase amount was inconsistent";
+			}
+			$this->write();
+			return true;
+		}
+		//something went wrong reading xml response
+		return false;
+	}
+	
 }
 
 /**
@@ -184,95 +245,43 @@ HTML;
 class PaystationHostedPayment_Controller extends Controller {
 	
 	protected static $usequicklookup = true;
-	protected static $quicklookupurl = 'https://www.paystation.co.nz/lookup/quick/';
 
 	static $URLSegment = 'paystation';
 	
 	static function complete_link() {
-		return self::$URLSegment . '/complete';
+		return Controller::join_links(self::$URLSegment , 'complete');
 	}
 	
+	/**
+	 * Post-payment action for returning to silverstripe website from paystation.
+	 */
 	function complete() {
 		//TODO: check that request came from paystation.co.nz
-		if(isset($_REQUEST['ec'])) {
-			if(isset($_REQUEST['ms'])) {
-				$payid = (int)substr($_REQUEST['ms'],strpos($_REQUEST['ms'],'-')+1);//extract PaystationPayment ID off the end
-				if($payment = DataObject::get_by_id('PaystationHostedPayment', $payid)) {
-					if($payment->Status == "Success"){
-						$payment->redirectToReturnURL();
-					}
-					$payment->Status = $_REQUEST['ec'] == '0' ? 'Success' : 'Failure';
-					if($_REQUEST['ti']) $payment->TransactionID = $_REQUEST['ti'];
-					if($_REQUEST['em']) $payment->Message = $_REQUEST['em'];
-					
-					//Quick Lookup
-					if(self::$usequicklookup){
-						$paystation = new RestfulService(self::$quicklookupurl,0); //REST connection that will expire immediately
-						$paystation->httpHeader('Accept: application/xml');
-						$paystation->httpHeader('Content-Type: application/x-www-form-urlencoded');
-						$data = array(
-							'pi' => PaystationHostedPayment::get_paystation_id(),
-							//'ti' => $payment->TransactionID
-							'ms' => $_REQUEST['ms']
-						);
-						$paystation->setQueryString($data);
-						$response = $paystation->request(null,'GET');
-						$sxml = $response->simpleXML();
-						if(!$sxml){
-							//falied connection?
-							$payment->Status = "Failure";
-							$payment->Message .= "Paystation quick lookup failed.";
-						}elseif($sxml->LookupStatus && $sxml->LookupStatus->LookupCode == "00"){
-							$payment->Status = "Success";
-						}elseif($s = $sxml->LookupResponse){
-							//check transaction ID matches
-							if($payment->TransactionID != (string)$s->PaystationTransactionID){
-								$payment->Status = "Failure";
-								$payment->Message .= "The transaction ID didn't match.";
-							}
-							//check amount matches
-							if($payment->Amount*100 != (int)$s->PurchaseAmount){
-								$payment->Status = "Failure";
-								$payment->Message .= "The purchase amount was inconsistent.";
-							}
-							//check session ID matches
-							if(session_id() != substr($_REQUEST['ms'],0,strpos($_REQUEST['ms'],'-'))){
-								$payment->Status = "Failure";
-								$payment->Message .= "Session id didn't match.";
-							}
-							//TODO: extra - check IP address against $payment->IP??
-						}elseif($sxml && $s = $sxml->LookupStatus){
-							$payment->Status = "Failure";
-							$payment->Message .= $s->LookupMessage;
-						}
-					}
-					$payment->write();
-					$payment->redirectToReturnURL();
-					return;
-				}
-				else user_error('There is no any Paystation payment which ID is #' . $payid, E_USER_ERROR);
-			}
-			else user_error('There is no any Paystation hosted payment ID specified', E_USER_ERROR);
+		if(!isset($_REQUEST['ec'])){
+			user_error('There is no any Paystation hosted payment error code specified', E_USER_ERROR);
 		}
-		else user_error('There is no any Paystation hosted payment error code specified', E_USER_ERROR);
-		//TODO: sawp errors for payment failures??
+		if(!isset($_REQUEST['ms'])){
+			user_error('There is no any Paystation hosted payment ID specified', E_USER_ERROR);
+		}
+		$ec = (int)$_REQUEST['ec']; //error code
+		$ms = $_REQUEST['ms']; //merchant session
+		$payid = (int)substr($ms,strpos($ms,'-') + 1); //extract PaystationPayment ID off the end
+		if($payment = DataObject::get_by_id('PaystationHostedPayment', $payid)) {
+			if($payment->Status != "Pending"){ //payment already processed
+				$payment->redirectToReturnURL();
+			}
+			$payment->updateFromCode($ec);
+			if(isset($_REQUEST['ti'])){
+				$payment->TransactionID = $_REQUEST['ti'];
+			}
+			$payment->write();
+			if(self::$usequicklookup){ //contact the server to check
+				$payment->doQuickLookup();
+			}
+			$payment->redirectToReturnURL();
+			return;
+		}
+		user_error('There is no any Paystation payment which ID is #' . $payid, E_USER_ERROR);
 	}
-	
-	/** Quick Lookup Refernce:
- 	 * 
-	 * AcquirerName - Merchants Acquirer Name
-	 * AcquirerMerchantID - The acquirer’s merchant ID used for the transaction
-	 * PaystationUserID - Paystation username
-	 * PaystationTransactionID - A string containing the unique transaction ID assigned to the	transaction attempt by the Paystation server.
-	 * PurchaseAmount - The amount of the transaction, in cents.
-	 * MerchantSession - A string containing the unique reference assigned to the transaction by the merchants system
-	 * ReturnReceiptNumber - The RRN number is a virtual terminal counter for the transaction and is not unique.
-	 * ShoppingTransactionNumber - Unique bank reference assigned to the transaction
-	 * AcquirerResponseCode - Acquirer’s response code. The result code’s vary from acquirer to acquirer and is included for debugging purposes. Please process	transaction result from the PaystationErrorCode.
-	 * QSIResponseCode - Payment Server Response code – the actual raw result from the payment server. Please process transaction result from the PaystationErrorCode.
-	 * PaystationErrorCode - The result of the transaction
-	 * BatchNumber - The Batch number on the Payment Server that this transaction will be added to in order to be processed by the acquiring institution.
-	 * Cardtype - The card type used
-	 */
 	
 }
